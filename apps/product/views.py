@@ -36,47 +36,43 @@ class ProductList(GenericAPIView):
         db_url = Sidus_Dev_Database
 
         res = []
-        if offered_list:
-            conn, cursor = SQLHepler.sql_multi_open(db_url)
-
-            info = SQLHepler.sql_multi_fetch_all(SQL_Hardware_Product_Series_Client,
-                                                 args=(offered_list,), cursor=cursor)
-            SQLHepler.close(conn=conn, cursor=cursor)
-            if info:
-                info.sort(key=itemgetter('offered_by'))
-                for key, group in groupby(info, itemgetter('offered_by')):
-                    offered_list.remove(key)
-                    product_info = dict()
-                    product_info['product_name'] = key
-                    product_info['sub_series'] = []
-                    series_info = list(group)
-                    series_info.sort(key=itemgetter('product_series'), reverse=True)
-                    product_series_list = []
-                    for series_key, series_group in groupby(series_info, itemgetter('product_series')):
-                        sub_pro = {}
-                        if not series_key:
-                            series_key = 'UNKNOWN'
-                        product_series_list.append(series_key)
-                        sub_pro['product_series'] = series_key
-                        sub_pro['sub_info'] = list(series_group)
-                        product_info['sub_series'].append(sub_pro)
-                    # 每一个offered_by都确保有UNKNOWN
-                    if 'UNKNOWN' not in product_series_list:
-                        UNKNOWN_info = dict()
-                        UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
-                        product_info['sub_series'].append(UNKNOWN_info)
-                    res.append(product_info)
-
-            if offered_list:
-                for last_department in offered_list:
-                    last_department_info = dict()
-                    last_department_info['product_name'] = last_department
-                    UNKNOWN_info = dict()
-                    UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
-                    last_department_info['sub_series'] = [UNKNOWN_info]
-                    res.append(last_department_info)
-        else:
+        if not offered_list:
             return Response({"status": RET.DATAERR, "msg": Info_Map[RET.DATAERR]})
+        conn, cursor = SQLHepler.sql_multi_open(db_url)
+
+        info = SQLHepler.sql_multi_fetch_all(SQL_Hardware_Product_Series_Client,
+                                             args=(offered_list,), cursor=cursor)
+        SQLHepler.close(conn=conn, cursor=cursor)
+        if info:
+            info.sort(key=itemgetter('offered_by'))
+            for key, group in groupby(info, itemgetter('offered_by')):
+                offered_list.remove(key)
+                product_info = {'product_name': key, 'sub_series': []}
+                series_info = list(group)
+                series_info.sort(key=itemgetter('product_series'), reverse=True)
+                product_series_list = []
+                for series_key, series_group in groupby(series_info, itemgetter('product_series')):
+                    sub_pro = {}
+                    if not series_key:
+                        series_key = 'UNKNOWN'
+                    product_series_list.append(series_key)
+                    sub_pro['product_series'] = series_key
+                    sub_pro['sub_info'] = list(series_group)
+                    product_info['sub_series'].append(sub_pro)
+                    # 每一个offered_by都确保有UNKNOWN
+                if 'UNKNOWN' not in product_series_list:
+                    UNKNOWN_info = {}
+                    UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
+                    product_info['sub_series'].append(UNKNOWN_info)
+                res.append(product_info)
+
+        if offered_list:
+            for last_department in offered_list:
+                last_department_info = {'product_name': last_department}
+                UNKNOWN_info = {}
+                UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
+                last_department_info['sub_series'] = [UNKNOWN_info]
+                res.append(last_department_info)
         return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": res})
 
 
@@ -113,7 +109,7 @@ class HardWareProduct(GenericAPIView):
         if offered == 'ALL':
             hardware_p_info = SQLHepler.fetch_all(SQL_Hardware_All_Product_Client, args=(offered_list,),
                                                   db_dict=Sidus_Dev_Database)
-        elif offered != 'ALL' and series == 'ALL':
+        elif series == 'ALL':
             if offered not in offered_list:
                 return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
             hardware_p_info = SQLHepler.fetch_all(SQL_Hardware_Product_Client, args=offered, db_dict=Sidus_Dev_Database)
@@ -288,73 +284,72 @@ class HardWareFirmware(APIView):
         return info
 
     def post(self, request, uuid):
-        if uuid == 'add':
-            user = request.user
-            data = request.data.copy()
-            ctr_info = data.get('Ctr')
-            dr_info = data.get('Dr')
-            ble_info = data.get('Ble')
-            # ble_status = data.get('Ble_status')
-            uuid_ascii_code = data.get('uuid_ascii_code')
-
-            if not uuid_ascii_code:
-                return Response({"status": RET.PARAMERR, "msg": 'UUID CAN NOT BE NONE'})
-            # 如果存在,判定用户是不是在列表
-            instance = ProdPartner.objects.filter(pro_uuid=uuid_ascii_code).first()
-            # 保存用户数据到本地db
-            # 如果不存在,新增的时候，添加用户数据到本地
-            if not instance:
-                department_list = [c_user.get('id') for c_user in user.department.values('id')]
-                # 添加部门的高级人员到参与者
-                user_high_list = [temp.get('id') for temp in
-                                  User.objects.filter(department__in=department_list, roles=2).values('id')]
-                info = {
-                    "pro_uuid": uuid_ascii_code,
-                    "pro_user": user_high_list,
-                    "pro_create": user.id
-                }
-                serializer = ProdSerializer(data=info)
-                try:
-                    serializer.is_valid(raise_exception=True)
-                except Exception as e:
-                    return Response({"status": RET.PARAMERR, "msg": str(e)})
-                serializer.save()
-
-            # 判断用户是否参与
-            if not self.get_user_permission(user, uuid_ascii_code):
-                return Response({"status": RET.ROLEERR, "msg": Info_Map[RET.ROLEERR]})
-            # 处理数据
-            db_url = Sidus_Dev_Database
-            conn, cursor = SQLHepler.sql_multi_open(db_url)
-            try:
-                if ctr_info:
-                    ctr_info.update(firmware_normal=0)
-                    self.insert_data(user, cursor, **ctr_info)
-                if dr_info:
-                    dr_info.update(firmware_normal=0)
-                    self.insert_data(user, cursor, **dr_info)
-
-                # 使用自定义蓝牙
-                if ble_info:
-                    ble_info.update(firmware_normal=0)
-                    self.insert_data(user, cursor, **ble_info)
-
-                # 更新当前的产品的使用状态product_status = 1
-                SQLHepler.sql_multi_execute(SQL_Status_Product, args=uuid_ascii_code, cursor=cursor)
-                updated_name = user.first_name + " " + user.last_name
-                SQLHepler.sql_multi_execute(SQL_Status_Product_Admin, args=(updated_name, uuid_ascii_code),
-                                            cursor=cursor)
-                SQLHepler.close(conn=conn, cursor=cursor)
-            except ValueError as e:
-                conn.rollback()
-                return Response({"status": RET.ROLEERR, "msg": str(e)})
-            except Exception as e:
-                # 进行回滚操作
-                conn.rollback()
-                return Response({"status": RET.PARAMERR, "msg": str(e)})
-            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-        else:
+        if uuid != 'add':
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        user = request.user
+        data = request.data.copy()
+        ctr_info = data.get('Ctr')
+        dr_info = data.get('Dr')
+        ble_info = data.get('Ble')
+        # ble_status = data.get('Ble_status')
+        uuid_ascii_code = data.get('uuid_ascii_code')
+
+        if not uuid_ascii_code:
+            return Response({"status": RET.PARAMERR, "msg": 'UUID CAN NOT BE NONE'})
+        # 如果存在,判定用户是不是在列表
+        instance = ProdPartner.objects.filter(pro_uuid=uuid_ascii_code).first()
+        # 保存用户数据到本地db
+        # 如果不存在,新增的时候，添加用户数据到本地
+        if not instance:
+            department_list = [c_user.get('id') for c_user in user.department.values('id')]
+            # 添加部门的高级人员到参与者
+            user_high_list = [temp.get('id') for temp in
+                              User.objects.filter(department__in=department_list, roles=2).values('id')]
+            info = {
+                "pro_uuid": uuid_ascii_code,
+                "pro_user": user_high_list,
+                "pro_create": user.id
+            }
+            serializer = ProdSerializer(data=info)
+            try:
+                serializer.is_valid(raise_exception=True)
+            except Exception as e:
+                return Response({"status": RET.PARAMERR, "msg": str(e)})
+            serializer.save()
+
+        # 判断用户是否参与
+        if not self.get_user_permission(user, uuid_ascii_code):
+            return Response({"status": RET.ROLEERR, "msg": Info_Map[RET.ROLEERR]})
+        # 处理数据
+        db_url = Sidus_Dev_Database
+        conn, cursor = SQLHepler.sql_multi_open(db_url)
+        try:
+            if ctr_info:
+                ctr_info.update(firmware_normal=0)
+                self.insert_data(user, cursor, **ctr_info)
+            if dr_info:
+                dr_info.update(firmware_normal=0)
+                self.insert_data(user, cursor, **dr_info)
+
+            # 使用自定义蓝牙
+            if ble_info:
+                ble_info.update(firmware_normal=0)
+                self.insert_data(user, cursor, **ble_info)
+
+            # 更新当前的产品的使用状态product_status = 1
+            SQLHepler.sql_multi_execute(SQL_Status_Product, args=uuid_ascii_code, cursor=cursor)
+            updated_name = user.first_name + " " + user.last_name
+            SQLHepler.sql_multi_execute(SQL_Status_Product_Admin, args=(updated_name, uuid_ascii_code),
+                                        cursor=cursor)
+            SQLHepler.close(conn=conn, cursor=cursor)
+        except ValueError as e:
+            conn.rollback()
+            return Response({"status": RET.ROLEERR, "msg": str(e)})
+        except Exception as e:
+            # 进行回滚操作
+            conn.rollback()
+            return Response({"status": RET.PARAMERR, "msg": str(e)})
+        return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
 
     def put(self, request, uuid):
         firmware_id = uuid
@@ -664,7 +659,7 @@ class CheckNormalExistedView(APIView):
         if infos:
             status = 1
         SQLHepler.close(conn=conn, cursor=cursor)
-        data = dict()
+        data = {}
         data.update(status=status)
 
         return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": data})

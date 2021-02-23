@@ -74,8 +74,6 @@ def check_save_user_token(access_token):
         data = serializer.loads(access_token)
     except BadData as e:
         return e
-    except SignatureExpired:
-        return 2
     else:
         return data
 

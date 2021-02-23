@@ -100,22 +100,16 @@ class SQLHepler(object):
     @classmethod
     def sql_multi_fetch_one(cls, sql, args=None, cursor=None):
         cursor.execute(sql, args)
-        obj = cursor.fetchone()
-        return obj
+        return cursor.fetchone()
 
     @classmethod
     def sql_multi_fetch_all(cls, sql, args=None, cursor=None):
         cursor.execute(sql, args)
-        obj = cursor.fetchall()
-        return obj
+        return cursor.fetchall()
 
     @classmethod
     def sql_multi_open(cls, db_dict, cursor=pymysql.cursors.DictCursor):
-        if db_dict.get('tag') == "pro":
-            pool = pro_pool
-        else:
-            pool = dev_pool
-
+        pool = pro_pool if db_dict.get('tag') == "pro" else dev_pool
         conn = pool.connection()
 
         cursor = conn.cursor(cursor=cursor)

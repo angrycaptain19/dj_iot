@@ -112,7 +112,7 @@ class UserRegisterView(APIView):
         info = request.data.copy()
         email = info.get('email', None)
         verification_code = info.get('verification_code')
-        if not (email and verification_code):
+        if not email or not verification_code:
             return Response({"status": RET.PARAMLOST, "msg": "参数缺失"})
 
         info_dict = {
@@ -127,17 +127,17 @@ class UserRegisterView(APIView):
         info.update(occupation='16', email=email.strip(), verification_code=verification_code.strip())
         response_data = client_post_mutipart_formdata_requests(Sidus_Pro_RegisterUrl, info)
         response_status = response_data.get('status', '')
-        if str(response_status) == '200':
-            # 保存数据到本地
-            serializer = CreateUserSerializer(data=info_dict)
-            try:
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
-                return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-            except Exception as e:
-                return Response({"status": RET.PARAMLOST, "msg": e})
-        else:
+        if str(response_status) != '200':
             return Response({"status": response_status, "msg": response_data.get('msg')})
+
+        # 保存数据到本地
+        serializer = CreateUserSerializer(data=info_dict)
+        try:
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
+        except Exception as e:
+            return Response({"status": RET.PARAMLOST, "msg": e})
 
 
 class VerifyRegInfo(APIView):
@@ -347,7 +347,7 @@ class UserChangePWD(GenericAPIView):
         password_commit = info.get('password_commit')
         verification_code = info.get('verification_code')
 
-        if not (password and verification_code):
+        if not password or not verification_code:
             return Response({"status": RET.PARAMLOST, "msg": Info_Map[RET.PARAMLOST]})
 
         if password != password_commit:
@@ -359,19 +359,19 @@ class UserChangePWD(GenericAPIView):
         }
         res = requests.post(Sidus_Pro_ChangePWD, data=data, headers=header).json()
 
-        if int(res.get('status')) == 200:
-            # 更改本地密码
-            instance = self.get_object()
-            local_info = {'password': password}
-            serializer = self.get_serializer(data=local_info, instance=instance)
-            try:
-                serializer.is_valid(raise_exception=True)
-            except Exception as e:
-                return Response({"status": RET.PWDTYPEERR, "msg": str(e)})
-            serializer.save()
-            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-        else:
+        if int(res.get('status')) != 200:
             return Response({"status": res.get('status'), "msg": res.get('msg')})
+
+        # 更改本地密码
+        instance = self.get_object()
+        local_info = {'password': password}
+        serializer = self.get_serializer(data=local_info, instance=instance)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            return Response({"status": RET.PWDTYPEERR, "msg": str(e)})
+        serializer.save()
+        return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
 
 
 # 获取更改密码的验证码

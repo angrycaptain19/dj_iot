@@ -25,8 +25,7 @@ def get_txt_file(filename):
 # 读取 json文件
 def get_json_file(filename):
     with open(filename, 'r', encoding='utf8') as f_json:
-        json_data = json.load(f_json)
-        return json_data
+        return json.load(f_json)
 
 
 # 经纬度匹配
@@ -42,10 +41,7 @@ def address_match(lat, lng, info=None, numcep=None):
 
 
 def get_city_equal(json_data):
-    city_list = []
-    for info in json_data:
-        city_list.append(info.get('name'))
-    return city_list
+    return [info.get('name') for info in json_data]
 
 
 # 城市匹配
@@ -90,7 +86,7 @@ if __name__ == '__main__':
 
     city_list = get_city_equal(json_data)
 
-    for x in range(0, 18000, 500):
+    for _ in range(0, 18000, 500):
         infos = SQLHepler.fetch_all(SQL_User_Country, db_dict=Local_Database_Sidus)
         #
         # 创建本地连接

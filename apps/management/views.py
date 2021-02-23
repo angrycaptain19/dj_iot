@@ -110,31 +110,30 @@ class DepartmentListView(GenericAPIView):
         return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
 
     def post(self, request, department):
-        if department == "add":
-            data = request.data
-            try:
-                serializer = DepartmentSerializer(data=data)
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
-            except Exception as e:
-                return Response({"status": RET.DEPARTMENTEXIST, "msg": Info_Map[RET.DEPARTMENTEXIST]})
-            return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": serializer.data})
-        else:
+        if department != "add":
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
 
+        data = request.data
+        try:
+            serializer = DepartmentSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        except Exception as e:
+            return Response({"status": RET.DEPARTMENTEXIST, "msg": Info_Map[RET.DEPARTMENTEXIST]})
+        return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": serializer.data})
+
     def put(self, request, department):
-        if department == "update":
-            data = request.data
-            department_id = data.get('department_id')
-            department_name = data.get('department_name')
-            department_instance = self.queryset.filter(id=department_id).first()
-            if not department_instance:
-                return Response({"status": RET.DEPARTMENTNOTEXIST, "msg": Info_Map[RET.DEPARTMENTNOTEXIST]})
-            department_instance.department_name = department_name
-            department_instance.save()
-            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-        else:
+        if department != "update":
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        data = request.data
+        department_id = data.get('department_id')
+        department_name = data.get('department_name')
+        department_instance = self.queryset.filter(id=department_id).first()
+        if not department_instance:
+            return Response({"status": RET.DEPARTMENTNOTEXIST, "msg": Info_Map[RET.DEPARTMENTNOTEXIST]})
+        department_instance.department_name = department_name
+        department_instance.save()
+        return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
 
 
 class UpdateUserView(GenericAPIView):
@@ -177,51 +176,44 @@ class ManageProductList(GenericAPIView):
         serializer = self.get_serializer(self.get_queryset(), many=True)
         department_list = [department.get('department_name') for department in serializer.data]
 
-        if env == 'pro':
-            db_url = Sidus_Pro_Database
-        else:
-            db_url = Sidus_Dev_Database
+        db_url = Sidus_Pro_Database if env == 'pro' else Sidus_Dev_Database
         res = []
-        if department_list:
-            conn, cursor = SQLHepler.sql_multi_open(db_url)
-            info = SQLHepler.sql_multi_fetch_all(SQL_Hardware_Product_Series,
-                                                 args=(department_list,), cursor=cursor)
-            SQLHepler.close(conn=conn, cursor=cursor)
-            info.sort(key=itemgetter('offered_by'))
-            for key, group in groupby(info, itemgetter('offered_by')):
-                department_list.remove(key)
-                product_info = dict()
-                product_info['product_name'] = key
-                product_info['sub_series'] = []
-                series_info = list(group)
-                series_info.sort(key=itemgetter('product_series'), reverse=True)
-                product_series_list = []
-                for series_key, series_group in groupby(series_info, itemgetter('product_series')):
-                    sub_pro = {}
-                    if not series_key:
-                        series_key = 'UNKNOWN'
-                    product_series_list.append(series_key)
-                    sub_pro['product_series'] = series_key
-                    sub_pro['sub_info'] = list(series_group)
-                    product_info['sub_series'].append(sub_pro)
-                # 每一个offered_by都确保有UNKNOWN
-                print(product_series_list)
-                if 'UNKNOWN' not in product_series_list:
-                    UNKNOWN_info = dict()
-                    UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
-                    product_info['sub_series'].append(UNKNOWN_info)
-                res.append(product_info)
-
-            if department_list:
-                for last_department in department_list:
-                    last_department_info = dict()
-                    last_department_info['product_name'] = last_department
-                    UNKNOWN_info = dict()
-                    UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
-                    last_department_info['sub_series'] = [UNKNOWN_info]
-                    res.append(last_department_info)
-        else:
+        if not department_list:
             return Response({"status": RET.DATAERR, "msg": Info_Map[RET.DATAERR]})
+        conn, cursor = SQLHepler.sql_multi_open(db_url)
+        info = SQLHepler.sql_multi_fetch_all(SQL_Hardware_Product_Series,
+                                             args=(department_list,), cursor=cursor)
+        SQLHepler.close(conn=conn, cursor=cursor)
+        info.sort(key=itemgetter('offered_by'))
+        for key, group in groupby(info, itemgetter('offered_by')):
+            department_list.remove(key)
+            product_info = {'product_name': key, 'sub_series': []}
+            series_info = list(group)
+            series_info.sort(key=itemgetter('product_series'), reverse=True)
+            product_series_list = []
+            for series_key, series_group in groupby(series_info, itemgetter('product_series')):
+                sub_pro = {}
+                if not series_key:
+                    series_key = 'UNKNOWN'
+                product_series_list.append(series_key)
+                sub_pro['product_series'] = series_key
+                sub_pro['sub_info'] = list(series_group)
+                product_info['sub_series'].append(sub_pro)
+            # 每一个offered_by都确保有UNKNOWN
+            print(product_series_list)
+            if 'UNKNOWN' not in product_series_list:
+                UNKNOWN_info = {}
+                UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
+                product_info['sub_series'].append(UNKNOWN_info)
+            res.append(product_info)
+
+        if department_list:
+            for last_department in department_list:
+                last_department_info = {'product_name': last_department}
+                UNKNOWN_info = {}
+                UNKNOWN_info.update(product_series='UNKNOWN', sub_info=[])
+                last_department_info['sub_series'] = [UNKNOWN_info]
+                res.append(last_department_info)
         return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": res})
 
 
@@ -234,10 +226,7 @@ class ManageProductListCreated(GenericAPIView):
         serializer = self.get_serializer(self.get_queryset(), many=True)
         department_list = [department.get('department_name') for department in serializer.data]
 
-        if env == 'pro':
-            db_url = Sidus_Pro_Database
-        else:
-            db_url = Sidus_Dev_Database
+        db_url = Sidus_Pro_Database if env == 'pro' else Sidus_Dev_Database
         res = []
         conn, cursor = SQLHepler.sql_multi_open(db_url)
         info = SQLHepler.sql_multi_fetch_all(SQL_Created_Hardware_Product_Series,
@@ -246,9 +235,7 @@ class ManageProductListCreated(GenericAPIView):
         info.sort(key=itemgetter('offered_by'))
         for key, group in groupby(info, itemgetter('offered_by')):
             department_list.remove(key)
-            product_info = dict()
-            product_info['product_name'] = key
-            product_info['sub_series'] = []
+            product_info = {'product_name': key, 'sub_series': []}
             series_info = list(group)
             # series_info.sort(key=itemgetter('product_series'), reverse=True)
             product_series_list = []
@@ -258,22 +245,20 @@ class ManageProductListCreated(GenericAPIView):
                     product_series = 'UNKNOWN'
                 if product_series not in product_series_list:
                     product_series_list.append(product_series)
-                    temp = dict()
-                    temp['product_series'] = product_series
+                    temp = {'product_series': product_series}
                     product_info['sub_series'].append(temp)
             # 每一个offered_by都确保有UNKNOWN
             print(product_series_list)
             if 'UNKNOWN' not in product_series_list:
-                UNKNOWN_info = dict()
+                UNKNOWN_info = {}
                 UNKNOWN_info.update(product_series='UNKNOWN')
                 product_info['sub_series'].append(UNKNOWN_info)
             res.append(product_info)
 
         if department_list:
             for last_department in department_list:
-                last_department_info = dict()
-                last_department_info['product_name'] = last_department
-                UNKNOWN_info = dict()
+                last_department_info = {'product_name': last_department}
+                UNKNOWN_info = {}
                 UNKNOWN_info.update(product_series='UNKNOWN')
                 last_department_info['sub_series'] = [UNKNOWN_info]
                 res.append(last_department_info)
@@ -285,11 +270,7 @@ class ProductUuid(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, env, uuid):
-        if env == 'pro':
-            db_url = Sidus_Pro_Database
-        else:
-            db_url = Sidus_Dev_Database
-
+        db_url = Sidus_Pro_Database if env == 'pro' else Sidus_Dev_Database
         conn, cursor = SQLHepler.sql_multi_open(db_url)
         data = SQLHepler.sql_multi_fetch_one(SQL_Hardware_Product_UUID, args=uuid, cursor=cursor)
         SQLHepler.close(conn=conn, cursor=cursor)
@@ -301,13 +282,10 @@ class ManageProduct(GenericAPIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, env, offered, series):
-        if env == 'pro':
-            db_url = Sidus_Pro_Database
-        else:
-            db_url = Sidus_Dev_Database
+        db_url = Sidus_Pro_Database if env == 'pro' else Sidus_Dev_Database
         if offered == 'ALL':
             hardware_p_info = SQLHepler.fetch_all(SQL_Hardware_All_Product, db_dict=db_url)
-        elif offered != 'ALL' and series == 'ALL':
+        elif series == 'ALL':
             hardware_p_info = SQLHepler.fetch_all(SQL_Hardware_Product, args=offered, db_dict=db_url)
         else:
             hardware_p_info = SQLHepler.fetch_all(SQL_Hardware_Product_offered_series, args=(offered, series),
@@ -343,122 +321,119 @@ class ManageProduct(GenericAPIView):
         return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": info})
 
     def post(self, request, env, offered, series):
-        if offered == 'add' and series == 'firmware_product':
-            data = request.data.copy()
-            uuid_ascii_code = data.get('uuid_ascii_code')
-            user = request.user
-            # 产品新建，默认状态为0
-            data.update(product_status=0)
-            # pro调用接口，dev SQL 写入数据
-            if env == 'pro':
-                sidus_token = user.sidus_token
-                header = {
-                    'Token-Data': sidus_token
-                }
-                res = requests.post(Sidus_Pro_FirmWareProductUrl, data=data,
-                                    headers=header).json()
-                db_url = Sidus_Pro_Database
-                conn, cursor = SQLHepler.sql_multi_open(db_url)
+        if offered != 'add' or series != 'firmware_product':
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        data = request.data.copy()
+        uuid_ascii_code = data.get('uuid_ascii_code')
+        user = request.user
+        # 产品新建，默认状态为0
+        data.update(product_status=0)
+        # pro调用接口，dev SQL 写入数据
+        if env == 'pro':
+            sidus_token = user.sidus_token
+            header = {
+                'Token-Data': sidus_token
+            }
+            res = requests.post(Sidus_Pro_FirmWareProductUrl, data=data,
+                                headers=header).json()
+            db_url = Sidus_Pro_Database
+            conn, cursor = SQLHepler.sql_multi_open(db_url)
+            hex_info = SQLHepler.sql_multi_fetch_one(SQL_Get_Series_Hex, args=uuid_ascii_code, cursor=cursor)
+            if int(hex_info.get('count')) == 0:
+                SQLHepler.sql_multi_execute(SQL_Insert_Series_Hex, args=data, cursor=cursor)
+            SQLHepler.close(conn=conn, cursor=cursor)
+            return Response({"status": res.get('status'), "msg": res.get('msg')})
+        elif env == 'dev':
+            if not uuid_ascii_code:
+                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+            db_url = Sidus_Dev_Database
+            conn, cursor = SQLHepler.sql_multi_open(db_url)
+            # 判断是否已经存在
+            res_info = SQLHepler.sql_multi_fetch_one(SQL_Firware_Product_Count, args=uuid_ascii_code,
+                                                     cursor=cursor)
+            print()
+            if int(res_info.get('count')) >= 1:
+                return Response({"status": RET.PORDUCTEXIST, "msg": uuid_ascii_code + ' Already Existed'})
+            # 数据处理
+            data.update(product_updated_admin_name=user.first_name + " " + user.last_name)
+            try:
+                SQLHepler.sql_multi_execute(SQL_Insert_Firware_Product, args=data, cursor=cursor)
                 hex_info = SQLHepler.sql_multi_fetch_one(SQL_Get_Series_Hex, args=uuid_ascii_code, cursor=cursor)
+
                 if int(hex_info.get('count')) == 0:
                     SQLHepler.sql_multi_execute(SQL_Insert_Series_Hex, args=data, cursor=cursor)
                 SQLHepler.close(conn=conn, cursor=cursor)
-                return Response({"status": res.get('status'), "msg": res.get('msg')})
-            elif env == 'dev':
-                if not uuid_ascii_code:
-                    return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
-                db_url = Sidus_Dev_Database
-                conn, cursor = SQLHepler.sql_multi_open(db_url)
-                # 判断是否已经存在
-                res_info = SQLHepler.sql_multi_fetch_one(SQL_Firware_Product_Count, args=uuid_ascii_code,
-                                                         cursor=cursor)
-                print()
-                if int(res_info.get('count')) >= 1:
-                    return Response({"status": RET.PORDUCTEXIST, "msg": uuid_ascii_code + ' Already Existed'})
-                # 数据处理
-                data.update(product_updated_admin_name=user.first_name + " " + user.last_name)
-                try:
-                    SQLHepler.sql_multi_execute(SQL_Insert_Firware_Product, args=data, cursor=cursor)
-                    hex_info = SQLHepler.sql_multi_fetch_one(SQL_Get_Series_Hex, args=uuid_ascii_code, cursor=cursor)
-
-                    if int(hex_info.get('count')) == 0:
-                        SQLHepler.sql_multi_execute(SQL_Insert_Series_Hex, args=data, cursor=cursor)
-                    SQLHepler.close(conn=conn, cursor=cursor)
-                except Exception as e:
-                    return Response({"status": RET.PARAMERR, "msg": e})
-                return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-            else:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+            except Exception as e:
+                return Response({"status": RET.PARAMERR, "msg": e})
+            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
         else:
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
 
     def put(self, request, env, offered, series):
-        if offered == 'update':
-            data = request.data.copy()
-            id = series
-            user = request.user
-            # pro dev SQL 更新数据
-            if env == 'pro':
-                db_url = Sidus_Pro_Database
-            elif env == 'dev':
-                db_url = Sidus_Dev_Database
-            else:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
-
-            product_name = data.get("product_name")
-            uuid_ascii_code = data.get("uuid_ascii_code")
-            if not (product_name and uuid_ascii_code):
-                return Response({"status": RET.PARAMLOST, "msg": Info_Map[RET.PARAMLOST]})
-
-            conn, cursor = SQLHepler.sql_multi_open(db_url)
-            # 判断是否已经存在
-            res_info = SQLHepler.sql_multi_fetch_one(SQL_Firware_Product_Count_By_Id, args=id,
-                                                     cursor=cursor)
-            if int(res_info.get('count')) < 1:
-                return Response({"status": RET.PORDUCTNOTEXIST, "msg": 'Product_id:' + id + ' Not Exist'})
-            # 数据处理
-            data.update(product_updated_admin_name=user.first_name + " " + user.last_name, id=id)
-
-            try:
-                SQLHepler.sql_multi_execute(SQL_Updatet_Firware_Product, args=data, cursor=cursor)
-
-                SQLHepler.sql_multi_execute(SQL_Update_Series,
-                                            args=(product_name, uuid_ascii_code), cursor=cursor)
-                SQLHepler.close(conn=conn, cursor=cursor)
-                return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-            except Exception as e:
-                return Response({"status": RET.PARAMERR, "msg": e})
+        if offered != 'update':
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        data = request.data.copy()
+        id = series
+        user = request.user
+        # pro dev SQL 更新数据
+        if env == 'pro':
+            db_url = Sidus_Pro_Database
+        elif env == 'dev':
+            db_url = Sidus_Dev_Database
         else:
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
 
-    def delete(self, request, env, offered, series):
-        if offered == 'delete':
-            uuid_ascii_code = series
-            if env == 'pro':
-                db_url = Sidus_Pro_Database
-            elif env == 'dev':
-                db_url = Sidus_Dev_Database
-            else:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        product_name = data.get("product_name")
+        uuid_ascii_code = data.get("uuid_ascii_code")
+        if not (product_name and uuid_ascii_code):
+            return Response({"status": RET.PARAMLOST, "msg": Info_Map[RET.PARAMLOST]})
 
-            conn, cursor = SQLHepler.sql_multi_open(db_url)
-            try:
-                # 判断是否已经存在
-                res_info = SQLHepler.sql_multi_fetch_one(SQL_Firware_Product_Count, args=uuid_ascii_code,
-                                                         cursor=cursor)
-                if int(res_info.get('count')) < 1:
-                    return Response({"status": RET.PORDUCTNOTEXIST, "msg": uuid_ascii_code + ' Not Exist'})
-                # 删除制定固件信息
-                SQLHepler.sql_multi_execute(SQL_Delete_Firware_UUID, args=uuid_ascii_code, cursor=cursor)
-                SQLHepler.sql_multi_execute(SQL_Delete_Firware_Product, args=uuid_ascii_code, cursor=cursor)
-                SQLHepler.sql_multi_execute(SQL_Delete_Series, args=uuid_ascii_code, cursor=cursor)
-                SQLHepler.close(conn=conn, cursor=cursor)
-                # 删除项目的创建人员以及协作人员
-                ProdPartner.objects.filter(pro_uuid=uuid_ascii_code).delete()
-                return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-            except Exception as e:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        conn, cursor = SQLHepler.sql_multi_open(db_url)
+        # 判断是否已经存在
+        res_info = SQLHepler.sql_multi_fetch_one(SQL_Firware_Product_Count_By_Id, args=id,
+                                                 cursor=cursor)
+        if int(res_info.get('count')) < 1:
+            return Response({"status": RET.PORDUCTNOTEXIST, "msg": 'Product_id:' + id + ' Not Exist'})
+        # 数据处理
+        data.update(product_updated_admin_name=user.first_name + " " + user.last_name, id=id)
+
+        try:
+            SQLHepler.sql_multi_execute(SQL_Updatet_Firware_Product, args=data, cursor=cursor)
+
+            SQLHepler.sql_multi_execute(SQL_Update_Series,
+                                        args=(product_name, uuid_ascii_code), cursor=cursor)
+            SQLHepler.close(conn=conn, cursor=cursor)
+            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
+        except Exception as e:
+            return Response({"status": RET.PARAMERR, "msg": e})
+
+    def delete(self, request, env, offered, series):
+        if offered != 'delete':
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        uuid_ascii_code = series
+        if env == 'pro':
+            db_url = Sidus_Pro_Database
+        elif env == 'dev':
+            db_url = Sidus_Dev_Database
         else:
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+
+        conn, cursor = SQLHepler.sql_multi_open(db_url)
+        try:
+            # 判断是否已经存在
+            res_info = SQLHepler.sql_multi_fetch_one(SQL_Firware_Product_Count, args=uuid_ascii_code,
+                                                     cursor=cursor)
+            if int(res_info.get('count')) < 1:
+                return Response({"status": RET.PORDUCTNOTEXIST, "msg": uuid_ascii_code + ' Not Exist'})
+            # 删除制定固件信息
+            SQLHepler.sql_multi_execute(SQL_Delete_Firware_UUID, args=uuid_ascii_code, cursor=cursor)
+            SQLHepler.sql_multi_execute(SQL_Delete_Firware_Product, args=uuid_ascii_code, cursor=cursor)
+            SQLHepler.sql_multi_execute(SQL_Delete_Series, args=uuid_ascii_code, cursor=cursor)
+            SQLHepler.close(conn=conn, cursor=cursor)
+            # 删除项目的创建人员以及协作人员
+            ProdPartner.objects.filter(pro_uuid=uuid_ascii_code).delete()
+            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
+        except Exception as e:
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
 
 
@@ -466,13 +441,10 @@ class CreatedManageProduct(GenericAPIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request, env, offered, series):
-        if env == 'pro':
-            db_url = Sidus_Pro_Database
-        else:
-            db_url = Sidus_Dev_Database
+        db_url = Sidus_Pro_Database if env == 'pro' else Sidus_Dev_Database
         if offered == 'ALL':
             hardware_p_info = SQLHepler.fetch_all(SQL_Created_Hardware_All_Product, db_dict=db_url)
-        elif offered != 'ALL' and series == 'ALL':
+        elif series == 'ALL':
             hardware_p_info = SQLHepler.fetch_all(SQL_Created_Hardware_Product, args=offered, db_dict=db_url)
         else:
             hardware_p_info = SQLHepler.fetch_all(SQL_Created_Hardware_Product_offered_series, args=(offered, series),
@@ -480,45 +452,43 @@ class CreatedManageProduct(GenericAPIView):
         return Response({"status": RET.OK, "msg": Info_Map[RET.OK], "data": hardware_p_info})
 
     def delete(self, request, env, offered, series):
-        if offered == 'delete':
-            uuid_ascii_code = series
-            if env == 'pro':
-                db_url = Sidus_Pro_Database
-            elif env == 'dev':
-                db_url = Sidus_Dev_Database
-            else:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
-
-            conn, cursor = SQLHepler.sql_multi_open(db_url)
-            try:
-                # 删除制定固件信息,并将product_status=0 标记为未使用
-                SQLHepler.sql_multi_execute(SQL_Delete_Firware_UUID, args=uuid_ascii_code, cursor=cursor)
-                SQLHepler.sql_multi_execute(SQL_Status_Firware_Product, args=uuid_ascii_code, cursor=cursor)
-                SQLHepler.close(conn=conn, cursor=cursor)
-                # 删除项目的创建人员以及协作人员
-                ProdPartner.objects.filter(pro_uuid=uuid_ascii_code).delete()
-                return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-            except Exception as e:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        if offered != 'delete':
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        uuid_ascii_code = series
+        if env == 'pro':
+            db_url = Sidus_Pro_Database
+        elif env == 'dev':
+            db_url = Sidus_Dev_Database
         else:
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
 
+        conn, cursor = SQLHepler.sql_multi_open(db_url)
+        try:
+            # 删除制定固件信息,并将product_status=0 标记为未使用
+            SQLHepler.sql_multi_execute(SQL_Delete_Firware_UUID, args=uuid_ascii_code, cursor=cursor)
+            SQLHepler.sql_multi_execute(SQL_Status_Firware_Product, args=uuid_ascii_code, cursor=cursor)
+            SQLHepler.close(conn=conn, cursor=cursor)
+            # 删除项目的创建人员以及协作人员
+            ProdPartner.objects.filter(pro_uuid=uuid_ascii_code).delete()
+            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
+        except Exception as e:
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+
     def put(self, request, env, offered, series):
-        if offered == 'update':
-            id = series
-            if env == 'pro':
-                db_url = Sidus_Pro_Database
-            elif env == 'dev':
-                db_url = Sidus_Dev_Database
-            else:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
-            try:
-                # 隐藏指定固件信息
-                SQLHepler.sql_execute(SQL_Display_Firware_Product, args=id, db_dict=db_url)
-                return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
-            except Exception as e:
-                return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        if offered != 'update':
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        id = series
+        if env == 'pro':
+            db_url = Sidus_Pro_Database
+        elif env == 'dev':
+            db_url = Sidus_Dev_Database
         else:
+            return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
+        try:
+            # 隐藏指定固件信息
+            SQLHepler.sql_execute(SQL_Display_Firware_Product, args=id, db_dict=db_url)
+            return Response({"status": RET.OK, "msg": Info_Map[RET.OK]})
+        except Exception as e:
             return Response({"status": RET.PARAMERR, "msg": Info_Map[RET.PARAMERR]})
 
 
